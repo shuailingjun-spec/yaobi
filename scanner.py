@@ -14,24 +14,47 @@ MCAP_MAX = 35_000_000
 OI_MC_RATIO_MIN = 0.10
 # ==========================
 
-def fetch_json(url, retries=2):
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; YaobiScanner/1.0)"}
+
+def fetch_json(url, retries=3):
     for i in range(retries + 1):
         try:
-            r = requests.get(url, timeout=20)
+            r = requests.get(url, timeout=30, headers=HEADERS)
             r.raise_for_status()
             return r.json()
         except Exception as e:
+            print(f"  ⚠️ [{i+1}/{retries+1}] {url[:60]}: {e}")
             if i < retries:
-                time.sleep(3)
+                time.sleep(5)
     return None
+
+def fetch_json_mirrors(mirrors, retries=3):
+    """尝试多个 API 镜像，返回第一个成功的"""
+    for url in mirrors:
+        data = fetch_json(url, retries=retries)
+        if data:
+            return data
+    return None
+
+FAPI_MIRRORS = [
+    "https://fapi.binance.com/fapi/v1/exchangeInfo",
+    "https://fapi.binance.cloud/fapi/v1/exchangeInfo",
+]
+API_MIRRORS = [
+    "https://api.binance.com/api/v3/exchangeInfo",
+    "https://api1.binance.com/api/v3/exchangeInfo",
+    "https://api2.binance.com/api/v3/exchangeInfo",
+    "https://api3.binance.com/api/v3/exchangeInfo",
+    "https://api.binance.us/api/v3/exchangeInfo",
+]
 
 def get_futures_only():
     """差集: 合约 - 现货"""
     print("[1/4] 获取币安合约+现货交易对...")
-    f_data = fetch_json("https://fapi.binance.com/fapi/v1/exchangeInfo")
-    s_data = fetch_json("https://api.binance.com/api/v3/exchangeInfo")
+    f_data = fetch_json_mirrors(FAPI_MIRRORS)
+    s_data = fetch_json_mirrors(API_MIRRORS)
     if not f_data or not s_data:
-        raise SystemExit("无法连接币安API")
+        raise SystemExit("无法连接币安API — 所有镜像均超时，可能 GitHub IP 被屏蔽")
 
     futures = set()
     for s in f_data.get("symbols", []):
@@ -91,11 +114,20 @@ def get_market_caps(symbols):
     print(f"  获取到 {len(results)} 个市值")
     return results
 
+OI_MIRRORS = [
+    "https://fapi.binance.com/fapi/v1/openInterest",
+    "https://fapi.binance.cloud/fapi/v1/openInterest",
+]
+FR_MIRRORS = [
+    "https://fapi.binance.com/fapi/v1/premiumIndex",
+    "https://fapi.binance.cloud/fapi/v1/premiumIndex",
+]
+
 def get_oi_and_funding(symbols):
     """取币安合约 OI + 资金费率"""
     print(f"[3/4] 获取 OI + 资金费率...")
-    oi_data = fetch_json("https://fapi.binance.com/fapi/v1/openInterest")
-    fr_data = fetch_json("https://fapi.binance.com/fapi/v1/premiumIndex")
+    oi_data = fetch_json_mirrors(OI_MIRRORS)
+    fr_data = fetch_json_mirrors(FR_MIRRORS)
 
     oi_map = {}
     fr_map = {}
